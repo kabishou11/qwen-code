@@ -1458,7 +1458,7 @@ export function worktreeResidueOf(report: PlanReport): WorktreeResidue {
 function worktreeEvidenceBlock(
   report: PlanReport,
   residue: WorktreeResidue | undefined,
-  opts: { rule?: boolean } = {},
+  opts: { rule?: boolean; readsDiff?: boolean } = {},
 ): string[] {
   const wt = report.worktreePath;
   if (typeof wt !== 'string' || !wt) return [];
@@ -1470,29 +1470,40 @@ function worktreeEvidenceBlock(
   // diff's directory.
   const wtAbs = inertPath(resolve(wt));
   const repoRoot = inertPath(resolve('.'));
-  // The diff path is named only for agents that already read it. Agent 7's
-  // evidence is the commands it ran; handing it the diff would be requiring
-  // a thing its job does not involve, and coverage would then report it
-  // "blind" for not opening a file it was never asked to open.
+  // The diff path is named only for agents whose brief already opens it.
+  // `readsDiff` is that declaration (`BRIEFS[role].readsDiff`, the same
+  // field coverage and the launch prompt read). Agent 7's evidence is the
+  // commands it ran; the fix auditor's input is the applied hunks. Both
+  // declare `readsDiff: false`, so nothing in their job opens the diff.
+  // Chunk and whole-diff builders omit the flag and do read the diff, so
+  // the default is true. `rule` is a different predicate — the shared-tree
+  // RULE below — and must not stand in for this one. Coverage cannot see
+  // the choice either way: a role brief is never a chunk agent, and
+  // `wasGivenTheDiff` reads the launch prompt, not this paragraph.
   const diffPath =
-    opts.rule !== false &&
+    opts.readsDiff !== false &&
     typeof report.diffPathAbsolute === 'string' &&
     report.diffPathAbsolute
       ? inertPath(report.diffPathAbsolute)
       : undefined;
+  // Plan-supplied paths are free-form strings. They are flattened by
+  // `inertPath` and rendered as plain text: a Markdown code span would let
+  // a backtick in the path close the span and a newline open a new heading
+  // in the file the agent is told is the whole of its instructions.
   parts.push(
     '',
-    `**The PR worktree's absolute path is \`${wtAbs}\`.** \`working_dir\` only ` +
+    `**The PR worktree's absolute path is ${wtAbs}.** \`working_dir\` only ` +
       'resolves relative paths against it. ' +
       (diffPath === undefined
         ? ''
-        : `The diff at \`${diffPath}\` is an artifact in the main checkout; ` +
+        : `The diff at ${diffPath} is an artifact in the main checkout; ` +
           'it is not a cue that source files live next to it. ') +
-      `**Source files live under \`${wtAbs}\`.** Never \`read_file\` ` +
-      `\`${repoRoot}/packages/...\` — that is a different tree (the main ` +
-      'checkout, typically `origin/main`), not the PR head. A relative ' +
-      "`packages/...` path is the PR's code; the same path under the main " +
-      'checkout is not.',
+      `**Source files live under ${wtAbs}.** Never point \`read_file\`, ` +
+      '`grep_search`, `glob` or a shell command at a repository path under ' +
+      `\`${repoRoot}\` that is not under ${wtAbs} — the rest of that tree ` +
+      'is the main checkout (typically `origin/main`), not the PR head. The ' +
+      `artifacts this brief names live under \`${repoRoot}/.qwen/tmp/\` and ` +
+      'are meant to be read.',
   );
   // The RULE is for agents that review code. The residue paragraph below is for
   // everyone: Agent 7 does not read the tree, it BUILDS it, and residue that
@@ -1851,7 +1862,10 @@ export function buildRoleBrief(
   // test matrix reading worktree source with no rule about what they were
   // reading.
   parts.push(
-    ...worktreeEvidenceBlock(report, opts.residue, { rule: role !== '7' }),
+    ...worktreeEvidenceBlock(report, opts.residue, {
+      rule: role !== '7',
+      readsDiff: brief.readsDiff,
+    }),
   );
 
   // The verifier is the last writing step without a tree of its own (Agent 7's
